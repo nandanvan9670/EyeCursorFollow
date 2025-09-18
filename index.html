@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Eyes That Follow Your Cursor</title>
+  <style>
+    :root{
+      --eye-size: 140px;
+      --ball-size: calc(var(--eye-size) * 0.9);
+      --pupil-size: calc(var(--eye-size) * 0.32);
+      --bg: #f6f8fb;
+      --eye-bg: #fff;
+      --outline: #cfd8e6;
+      --shadow: rgba(17,24,39,0.06);
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg,var(--bg),#eef3fb);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:32px;
+      padding:40px;
+    }
+
+    .stage{
+      text-align:center;
+      user-select:none;
+    }
+
+    .eyes {
+      display:flex;
+      gap:28px;
+      align-items:center;
+      justify-content:center;
+      margin-bottom:18px;
+    }
+
+    .eye {
+      width:var(--eye-size);
+      height:var(--eye-size);
+      background:var(--eye-bg);
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      box-shadow: 0 6px 14px var(--shadow), inset 0 -6px 12px rgba(10,20,40,0.02);
+      border: 4px solid var(--outline);
+      position:relative;
+      overflow:hidden; /* keeps pupil inside */
+    }
+
+    .iris {
+      width:var(--ball-size);
+      height:var(--ball-size);
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      transform: translateZ(0); /* better perf for transforms */
+    }
+
+    .pupil {
+      width:var(--pupil-size);
+      height:var(--pupil-size);
+      background: radial-gradient(circle at 35% 30%, #001, #000 60%);
+      border-radius:50%;
+      transform: translate(-50%,-50%);
+      position:absolute;
+      left:50%;
+      top:50%;
+      transition: transform 120ms cubic-bezier(.22,.9,.35,1); /* smooth */
+      box-shadow: 0 4px 8px rgba(0,0,0,0.18);
+    }
+
+    /* little reflection to make eyes cute */
+    .pupil::after{
+      content:"";
+      position:absolute;
+      width:28%;
+      height:28%;
+      left:18%;
+      top:14%;
+      border-radius:50%;
+      background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.45));
+      filter: blur(0.5px);
+    }
+
+    .label{
+      color:#0f172a;
+      font-size:15px;
+      opacity:0.85;
+    }
+
+    /* responsive: smaller eyes on narrow screens */
+    @media (max-width:420px){
+      :root{--eye-size:96px}
+      body{padding:20px}
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" aria-label="Interactive eyes that follow your cursor">
+    <div class="eyes" id="eyes">
+      <div class="eye" data-eye>
+        <div class="iris"></div>
+        <div class="pupil" aria-hidden="true"></div>
+      </div>
+
+      <div class="eye" data-eye>
+        <div class="iris"></div>
+        <div class="pupil" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="label">Move your mouse or touch — the eyes will follow!</div>
+  </main>
+
+  <script>
+  // Smooth, constrained pupils that follow pointer/touch.
+  (function () {
+    const eyes = document.querySelectorAll('[data-eye]');
+    // Maximum pupil travel from center (in px). We'll compute relative to eye radius.
+    function updatePupil(eyeEl, pointerX, pointerY) {
+      const rect = eyeEl.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+
+      // vector from eye center to pointer
+      let dx = pointerX - centerX;
+      let dy = pointerY - centerY;
+
+      // distance and maximum allowed (so pupil stays inside eye)
+      const dist = Math.hypot(dx, dy);
+
+      // limitDistance should be a fraction of eye radius so pupil doesn't leave white.
+      const eyeRadius = rect.width / 2;
+      const pupilEl = eyeEl.querySelector('.pupil');
+      // pupil radius used to keep pupil fully inside
+      const pupilRadius = pupilEl.offsetWidth / 2;
+
+      // set max travel so pupil edge never crosses eye's inner boundary
+      const maxTravel = Math.max(eyeRadius - pupilRadius - 6, 0); // -6 px safety margin
+
+      // if pointer is at center, leave dx,dy as 0 for nicer animation
+      if (dist > 0.01) {
+        const scale = Math.min(maxTravel / dist, 1);
+        dx *= scale;
+        dy *= scale;
+      } else {
+        dx = dy = 0;
+      }
+
+      // apply translate via transform — translate(-50%,-50%) from CSS centers it
+      // we add the dx,dy in pixels
+      pupilEl.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    }
+
+    // pointer tracking: mousemove + touchmove + keyboard focus support
+    let lastPointer = {x: window.innerWidth/2, y: window.innerHeight/2};
+
+    function handlePointer(x,y){
+      lastPointer.x = x; lastPointer.y = y;
+      eyes.forEach(e => updatePupil(e, x, y));
+    }
+
+    // mouse
+    window.addEventListener('mousemove', (ev) => {
+      handlePointer(ev.clientX, ev.clientY);
+    }, {passive:true});
+
+    // touch (uses first touch)
+    window.addEventListener('touchmove', (ev) => {
+      if(ev.touches && ev.touches[0]){
+        handlePointer(ev.touches[0].clientX, ev.touches[0].clientY);
+      }
+    }, {passive:true});
+
+    // when user tabs to the eyes, use keyboard arrows to nudge gaze (accessibility)
+    document.addEventListener('keydown', (ev) => {
+      const step = 18; // pixels per arrow
+      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(ev.key)){
+        ev.preventDefault();
+        if(ev.key === 'ArrowUp') lastPointer.y -= step;
+        if(ev.key === 'ArrowDown') lastPointer.y += step;
+        if(ev.key === 'ArrowLeft') lastPointer.x -= step;
+        if(ev.key === 'ArrowRight') lastPointer.x += step;
+        handlePointer(lastPointer.x, lastPointer.y);
+      }
+    });
+
+    // initial render: center gaze
+    handlePointer(window.innerWidth / 2, window.innerHeight / 2);
+
+    // if window resizes, re-evaluate positioning with stored pointer
+    window.addEventListener('resize', () => handlePointer(lastPointer.x, lastPointer.y), {passive:true});
+  })();
+  </script>
+</body>
+</html>
